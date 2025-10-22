@@ -1,0 +1,5 @@
+backend/node_modules/
+backend/blockchain_data
+backend/rag_data
+
+frontend/node_modules/
