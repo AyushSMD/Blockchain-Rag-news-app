@@ -139,7 +139,21 @@ class Blockchain {
     const filePath = path.join(this.dataDir, 'blockchain.json');
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf8');
-      this.chain = JSON.parse(data);
+      const loadedChain = JSON.parse(data);
+      
+      // Reconstruct Block objects with methods
+      this.chain = loadedChain.map(blockData => {
+        const block = new Block(
+          blockData.index,
+          blockData.timestamp,
+          blockData.data,
+          blockData.previousHash
+        );
+        block.nonce = blockData.nonce;
+        block.hash = blockData.hash;
+        return block;
+      });
+      
       console.log(`Loaded ${this.chain.length} blocks from disk`);
     }
   }

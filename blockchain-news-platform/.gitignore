@@ -1,5 +1,6 @@
 backend/node_modules/
 backend/blockchain_data
 backend/rag_data
+backend/.env
 
 frontend/node_modules/

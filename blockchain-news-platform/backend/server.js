@@ -1,9 +1,12 @@
 // server.js - REST API Server with RAG Implementation
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const Blockchain = require('./blockchain');
 const P2PNetwork = require('./p2p');
 const RAGProcessor = require('./rag');
+const LangChainGroqChat = require('./langchain-chat');
 
 const app = express();
 const HTTP_PORT = process.env.HTTP_PORT || 3001;
@@ -12,10 +15,11 @@ const P2P_PORT = process.env.P2P_PORT || 6001;
 app.use(cors());
 app.use(express.json());
 
-// Initialize blockchain and P2P network
+// Initialize blockchain, P2P network, and AI
 const blockchain = new Blockchain();
 const p2pNetwork = new P2PNetwork(blockchain, P2P_PORT);
 const ragProcessor = new RAGProcessor();
+const aiChat = new LangChainGroqChat(process.env.GROQ_API_KEY);
 
 // P2P Event Handlers
 p2pNetwork.on('peerConnected', (peerId) => {
@@ -155,6 +159,7 @@ app.get('/api/search', async (req, res) => {
 app.post('/api/articles/:id/vote', async (req, res) => {
   try {
     const { id } = req.params;
+    const { voteType } = req.body; // 'up' or 'down'
     
     // Find article in blockchain
     let foundArticle = null;
@@ -173,8 +178,13 @@ app.post('/api/articles/:id/vote', async (req, res) => {
       return res.status(404).json({ error: 'Article not found' });
     }
 
-    // Update votes
-    foundArticle.votes = (foundArticle.votes || 0) + 1;
+    // Update votes based on type
+    if (voteType === 'up') {
+      foundArticle.votes = (foundArticle.votes || 0) + 1;
+    } else if (voteType === 'down') {
+      foundArticle.downvotes = (foundArticle.downvotes || 0) + 1;
+    }
+    
     blockchain.chain[blockIndex].data = foundArticle;
     blockchain.saveBlockchain();
 
@@ -185,7 +195,9 @@ app.post('/api/articles/:id/vote', async (req, res) => {
     p2pNetwork.broadcastMessage({
       type: 'ARTICLE_VOTE',
       articleId: id,
-      votes: foundArticle.votes
+      votes: foundArticle.votes || 0,
+      downvotes: foundArticle.downvotes || 0,
+      voteType
     });
 
     res.json({
@@ -217,6 +229,70 @@ app.post('/api/peers', (req, res) => {
   p2pNetwork.connectToPeer(peerAddress);
   res.json({ success: true, message: 'Connecting to peer...' });
 });
+
+// Chat with AI (LangChain-style)
+// ------------------------------
+// Chat with AI (LangChain + RAG)
+// ------------------------------
+// Chat with AI (LangChain-style, now with RAG + Groq)
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message, context } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    // Search for relevant articles using RAG
+    const relevantArticles = await ragProcessor.search(message, 3);
+
+    if (!relevantArticles || relevantArticles.length === 0) {
+      return res.json({
+        success: true,
+        model: 'fallback',
+        response: `I couldn't find any related blockchain news for "${message}". Try uploading some relevant articles first.`,
+        articles: [],
+        timestamp: Date.now()
+      });
+    }
+
+    // Prepare structured context for Groq
+    const aiContext = {
+      articles: relevantArticles.map(a => ({
+        title: a.title,
+        url: a.url,
+        summary: a.content ? a.content.substring(0, 200) + '...' : 'No summary available.',
+        trustScore: calculateTrustScore(a),
+      })),
+    };
+
+    // 🔥 Send message and context to Groq
+    let aiResult;
+    try {
+      aiResult = await aiChat.chat(message, aiContext);
+    } catch (error) {
+      console.warn('⚠️ Groq API failed, using fallback:', error.message);
+      aiResult = {
+        response: `I'm unable to reach the AI right now, but here are some related articles that may help you:`,
+        model: 'fallback'
+      };
+    }
+
+    res.json({
+      success: true,
+      query: message,
+      response: aiResult.response,
+      model: aiResult.model || 'groq',
+      articles: aiContext.articles,
+      timestamp: Date.now()
+    });
+
+  } catch (error) {
+    console.error('Error in chat:', error);
+    res.status(500).json({ error: 'Chat processing failed' });
+  }
+});
+
 
 // Trust score calculation
 function calculateTrustScore(article) {
