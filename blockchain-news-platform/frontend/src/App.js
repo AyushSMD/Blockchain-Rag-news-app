@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Upload, ThumbsUp, ThumbsDown, ExternalLink, Database, Sparkles, BookOpen, TrendingUp, Zap, Globe, Users, Clock, Award, MessageCircle, Send, X, BarChart3, AlertCircle } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+const HTTP_PORT=process.env.HTTP_PORT || 3001
+const API_URL = `http://localhost:${HTTP_PORT}/api`;
 
 const BlockchainNewsApp = () => {
   const [articles, setArticles] = useState([]);
