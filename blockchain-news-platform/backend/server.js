@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 // server.js - REST API Server with RAG Implementation
 const express = require('express');
 const cors = require('cors');
