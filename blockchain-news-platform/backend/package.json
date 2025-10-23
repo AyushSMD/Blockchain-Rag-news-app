@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "node1": "HTTP_PORT=3001 P2P_PORT=6001 node server.js",
-    "node2": "HTTP_PORT=3002 P2P_PORT=6002 PEERS=ws://localhost:6001 node server.js",
-    "node3": "HTTP_PORT=3003 P2P_PORT=6003 PEERS=ws://localhost:6001,ws://localhost:6002 node server.js"
+    "node1": "cross-env HTTP_PORT=3001 P2P_PORT=6001 node server.js",
+    "node2": "cross-env HTTP_PORT=3002 P2P_PORT=6002 PEERS=ws://localhost:6001 node server.js",
+    "node3": "cross-env HTTP_PORT=3003 P2P_PORT=6003 PEERS=ws://localhost:6001,ws://localhost:6002 node server.js"
   },
   "keywords": [
     "blockchain",
@@ -26,6 +26,7 @@
     "ws": "^8.14.2"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "nodemon": "^3.0.1"
   }
 }
