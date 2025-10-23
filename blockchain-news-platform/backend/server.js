@@ -1,6 +1,4 @@
 // server.js - REST API Server with RAG Implementation
-require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
 const Blockchain = require('./blockchain');
@@ -191,14 +189,13 @@ app.post('/api/articles/:id/vote', async (req, res) => {
     // Update in RAG system
     await ragProcessor.updateDocument(id, foundArticle);
 
-    // Broadcast update
-    p2pNetwork.broadcastMessage({
-      type: 'ARTICLE_VOTE',
-      articleId: id,
-      votes: foundArticle.votes || 0,
-      downvotes: foundArticle.downvotes || 0,
+    // Broadcast vote update to network
+    p2pNetwork.broadcastVoteUpdate(
+      id,
+      foundArticle.votes || 0,
+      foundArticle.downvotes || 0,
       voteType
-    });
+    );
 
     res.json({
       success: true,
@@ -230,69 +227,72 @@ app.post('/api/peers', (req, res) => {
   res.json({ success: true, message: 'Connecting to peer...' });
 });
 
-// Chat with AI (LangChain-style)
-// ------------------------------
-// Chat with AI (LangChain + RAG)
-// ------------------------------
-// Chat with AI (LangChain-style, now with RAG + Groq)
+// Chat with AI (LangChain + Groq)
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, context } = req.body;
-
+    const { message, articleId } = req.body;
+    
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Search for relevant articles using RAG
-    const relevantArticles = await ragProcessor.search(message, 3);
-
-    if (!relevantArticles || relevantArticles.length === 0) {
-      return res.json({
-        success: true,
-        model: 'fallback',
-        response: `I couldn't find any related blockchain news for "${message}". Try uploading some relevant articles first.`,
-        articles: [],
-        timestamp: Date.now()
-      });
+    // Search for relevant articles
+    const relevantArticles = await ragProcessor.search(message, 5);
+    
+    // Get selected article if articleId provided
+    let selectedArticle = null;
+    if (articleId) {
+      selectedArticle = relevantArticles.find(a => a.id === articleId) || ragProcessor.getDocument(articleId);
     }
 
-    // Prepare structured context for Groq
-    const aiContext = {
+    // Build context
+    const context = {
       articles: relevantArticles.map(a => ({
         title: a.title,
-        url: a.url,
-        summary: a.content ? a.content.substring(0, 200) + '...' : 'No summary available.',
-        trustScore: calculateTrustScore(a),
+        content: a.content,
+        trustScore: calculateTrustScore(a)
       })),
+      selectedArticle: selectedArticle ? {
+        title: selectedArticle.title,
+        content: selectedArticle.content,
+        trustScore: calculateTrustScore(selectedArticle)
+      } : null
     };
 
-    // 🔥 Send message and context to Groq
-    let aiResult;
+    // Get AI response using Groq
+    let aiResponse;
     try {
-      aiResult = await aiChat.chat(message, aiContext);
+      const result = await aiChat.chat(message, context);
+      aiResponse = result.response;
     } catch (error) {
-      console.warn('⚠️ Groq API failed, using fallback:', error.message);
-      aiResult = {
-        response: `I'm unable to reach the AI right now, but here are some related articles that may help you:`,
-        model: 'fallback'
-      };
+      console.error('Groq API error:', error.message);
+      // Fallback to simple response if Groq fails
+      if (relevantArticles.length > 0) {
+        aiResponse = `I found ${relevantArticles.length} relevant article(s): ${relevantArticles.map(a => `"${a.title}"`).join(', ')}. `;
+        if (message.toLowerCase().includes('summarize') || message.toLowerCase().includes('summary')) {
+          const article = relevantArticles[0];
+          const summary = ragProcessor.generateSummary(article.content || article.title, 3);
+          aiResponse += `\n\nSummary of "${article.title}":\n${summary}`;
+        }
+      } else {
+        aiResponse = `I couldn't find any articles matching your query in the blockchain. Try different keywords or upload relevant articles!`;
+      }
     }
 
     res.json({
       success: true,
-      query: message,
-      response: aiResult.response,
-      model: aiResult.model || 'groq',
-      articles: aiContext.articles,
+      response: aiResponse,
+      relevantArticles: relevantArticles.slice(0, 3).map(a => ({
+        ...a,
+        trustScore: calculateTrustScore(a)
+      })),
       timestamp: Date.now()
     });
-
   } catch (error) {
     console.error('Error in chat:', error);
     res.status(500).json({ error: 'Chat processing failed' });
   }
 });
-
 
 // Trust score calculation
 function calculateTrustScore(article) {
